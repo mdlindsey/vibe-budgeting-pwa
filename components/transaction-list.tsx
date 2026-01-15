@@ -263,6 +263,17 @@ export function TransactionList({ sheetUrl }: TransactionListProps) {
     if (sheetUrl) {
       fetchTransactions()
     }
+
+    // Listen for transaction added events to refresh the list
+    const handleTransactionAdded = () => {
+      fetchTransactions()
+    }
+
+    window.addEventListener("transaction-added", handleTransactionAdded)
+
+    return () => {
+      window.removeEventListener("transaction-added", handleTransactionAdded)
+    }
   }, [sheetUrl])
 
   const toggleFullExpand = (id: string) => {

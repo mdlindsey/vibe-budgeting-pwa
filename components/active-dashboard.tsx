@@ -45,7 +45,20 @@ export function ActiveDashboard({ sheetUrl, onReset }: ActiveDashboardProps) {
         </div>
 
         {/* Tab Content */}
-        <div className="px-4 py-4">{activeTab === "add" ? <AddTab /> : <AskTab />}</div>
+        <div className="px-4 py-4">
+          {activeTab === "add" ? (
+            <AddTab
+              sheetUrl={sheetUrl}
+              onTransactionAdded={() => {
+                // Trigger a refresh of the transaction list
+                // The TransactionList component will handle the refresh via its useEffect
+                window.dispatchEvent(new Event("transaction-added"))
+              }}
+            />
+          ) : (
+            <AskTab />
+          )}
+        </div>
 
         {/* Recent Transactions */}
         <div className="flex-1 px-4 pb-4">

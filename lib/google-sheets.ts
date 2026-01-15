@@ -113,16 +113,38 @@ export async function getSheetId(
     console.log(`Available sheets: ${JSON.stringify(allSheetNames)}`)
     console.log(`Looking for sheet: "${sheetName}"`)
 
-    const sheet = spreadsheet.data.sheets?.find(
+    // Try exact match first
+    let sheet = spreadsheet.data.sheets?.find(
       (sheet) => sheet.properties?.title === sheetName
     )
+
+    // If not found, try case-insensitive match
+    if (!sheet) {
+      sheet = spreadsheet.data.sheets?.find(
+        (sheet) => sheet.properties?.title?.toLowerCase() === sheetName.toLowerCase()
+      )
+    }
+
+    // If still not found, try trimming whitespace
+    if (!sheet) {
+      sheet = spreadsheet.data.sheets?.find(
+        (sheet) => sheet.properties?.title?.trim() === sheetName.trim()
+      )
+    }
 
     if (!sheet) {
       console.warn(`Sheet "${sheetName}" not found. Available sheets: ${allSheetNames.join(", ")}`)
       return null
     }
 
-    return sheet?.properties?.sheetId ?? null
+    const sheetId = sheet.properties?.sheetId
+    if (sheetId === undefined || sheetId === null) {
+      console.warn(`Sheet "${sheetName}" found but has no sheetId`)
+      return null
+    }
+
+    console.log(`Found sheet "${sheetName}" with ID: ${sheetId}`)
+    return sheetId
   } catch (error) {
     console.error(`Error getting sheet ID for ${sheetName}:`, error)
     return null
