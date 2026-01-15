@@ -14,7 +14,8 @@ interface NewUserSetupProps {
 export function NewUserSetup({ onComplete }: NewUserSetupProps) {
   const [sheetUrl, setSheetUrl] = useState("")
   const [copied, setCopied] = useState(false)
-  const email = "expensetracking@gmail.com"
+  // Use GCP_SA_EMAIL from environment variable (NEXT_PUBLIC_ prefix required for client components)
+  const email = process.env.NEXT_PUBLIC_GCP_SA_EMAIL || "expensetracking@gmail.com"
 
   const handleCopyEmail = async () => {
     await navigator.clipboard.writeText(email)
@@ -57,7 +58,7 @@ export function NewUserSetup({ onComplete }: NewUserSetupProps) {
               onClick={handleCopyEmail}
               className="flex items-center gap-3 bg-muted hover:bg-muted/80 transition-colors rounded-xl px-4 py-3 w-full min-h-[48px]"
             >
-              <code className="text-sm font-mono text-foreground flex-1 text-left">{email}</code>
+              <code className="text-sm font-mono text-foreground flex-1 text-left truncate">{email}</code>
               {copied ? (
                 <Check className="w-4 h-4 text-primary shrink-0" />
               ) : (
