@@ -44,7 +44,7 @@ export default function Home() {
   return (
     <main className="min-h-dvh bg-background">
       {appState === "new-user" && <NewUserSetup onComplete={handleSetupComplete} />}
-      {appState === "initializing" && <InitializingState onComplete={handleInitializationComplete} />}
+      {appState === "initializing" && <InitializingState sheetUrl={sheetUrl} onComplete={handleInitializationComplete} />}
       {appState === "active" && <ActiveDashboard sheetUrl={sheetUrl} onReset={handleReset} />}
     </main>
   )

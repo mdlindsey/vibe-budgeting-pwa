@@ -49,7 +49,7 @@ export function ActiveDashboard({ sheetUrl, onReset }: ActiveDashboardProps) {
 
         {/* Recent Transactions */}
         <div className="flex-1 px-4 pb-4">
-          <TransactionList />
+          <TransactionList sheetUrl={sheetUrl} />
         </div>
       </div>
     </div>

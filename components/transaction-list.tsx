@@ -1,8 +1,9 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
-import { ShoppingBag, Utensils, Car, Gamepad2, Heart, Home, ChevronRight } from "lucide-react"
+import { ShoppingBag, Utensils, Car, Gamepad2, Heart, Home, ChevronRight, Loader2 } from "lucide-react"
+import { formatDistanceToNow, parseISO, isValid as isValidDate } from "date-fns"
 
 interface LineItem {
   name: string
@@ -13,11 +14,129 @@ interface Transaction {
   id: string
   merchant: string
   date: string
+  originalDate: string // Store original date for sorting
   category: string
   categoryIcon: typeof ShoppingBag
   itemCount: number
   total: number
   items: LineItem[]
+}
+
+interface TransactionRow {
+  merchant: string
+  date: string
+  category: string
+  item: string
+  cost: number
+}
+
+interface TransactionListProps {
+  sheetUrl: string
+}
+
+// Category icon mapping
+const categoryIcons: Record<string, typeof ShoppingBag> = {
+  Groceries: ShoppingBag,
+  Dining: Utensils,
+  Transport: Car,
+  Entertainment: Gamepad2,
+  Health: Heart,
+  Home: Home,
+}
+
+const getCategoryIcon = (category: string): typeof ShoppingBag => {
+  return categoryIcons[category] || ShoppingBag
+}
+
+// Format date to relative time (e.g., "2 days ago")
+const formatRelativeDate = (dateStr: string): string => {
+  try {
+    // Try parsing as ISO string first
+    let date: Date
+    if (dateStr.includes("T") || dateStr.includes("Z")) {
+      date = parseISO(dateStr)
+    } else {
+      // Try parsing as regular date string
+      date = new Date(dateStr)
+    }
+
+    if (!isValidDate(date)) {
+      return dateStr
+    }
+
+    const distance = formatDistanceToNow(date, { addSuffix: true })
+    // Capitalize first letter
+    return distance.charAt(0).toUpperCase() + distance.slice(1)
+  } catch {
+    return dateStr
+  }
+}
+
+// Group transaction rows by merchant and date
+const groupTransactions = (rows: TransactionRow[]): Transaction[] => {
+  const grouped = new Map<string, TransactionRow[]>()
+
+  // Group by merchant + date
+  for (const row of rows) {
+    const key = `${row.merchant}|${row.date}`
+    if (!grouped.has(key)) {
+      grouped.set(key, [])
+    }
+    grouped.get(key)!.push(row)
+  }
+
+  // Convert to Transaction objects
+  const transactions: Transaction[] = []
+  let idCounter = 1
+
+  for (const [key, items] of grouped.entries()) {
+    if (items.length === 0) continue
+
+    const firstItem = items[0]
+    const total = items.reduce((sum, item) => sum + item.cost, 0)
+    
+    // Get the most common category, or first one
+    const categoryCounts = new Map<string, number>()
+    for (const item of items) {
+      categoryCounts.set(item.category, (categoryCounts.get(item.category) || 0) + 1)
+    }
+    const mostCommonCategory = Array.from(categoryCounts.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] || firstItem.category
+
+    transactions.push({
+      id: `transaction-${idCounter++}`,
+      merchant: firstItem.merchant,
+      date: formatRelativeDate(firstItem.date),
+      originalDate: firstItem.date, // Store original for sorting
+      category: mostCommonCategory,
+      categoryIcon: getCategoryIcon(mostCommonCategory),
+      itemCount: items.length,
+      total,
+      items: items.map((item) => ({
+        name: item.item,
+        price: item.cost,
+      })),
+    })
+  }
+
+  // Sort by date (most recent first)
+  transactions.sort((a, b) => {
+    try {
+      const dateA = a.originalDate.includes("T") || a.originalDate.includes("Z") 
+        ? parseISO(a.originalDate) 
+        : new Date(a.originalDate)
+      const dateB = b.originalDate.includes("T") || b.originalDate.includes("Z")
+        ? parseISO(b.originalDate)
+        : new Date(b.originalDate)
+      if (isValidDate(dateA) && isValidDate(dateB)) {
+        return dateB.getTime() - dateA.getTime()
+      }
+    } catch {
+      // Fall through to string comparison
+    }
+    return b.originalDate.localeCompare(a.originalDate)
+  })
+
+  return transactions
 }
 
 const mockTransactions: Transaction[] = [
@@ -110,9 +229,41 @@ const mockTransactions: Transaction[] = [
 
 const MAX_VISIBLE_ITEMS = 5
 
-export function TransactionList() {
+export function TransactionList({ sheetUrl }: TransactionListProps) {
   const [expandedId, setExpandedId] = useState<string>("")
   const [fullyExpandedIds, setFullyExpandedIds] = useState<Set<string>>(new Set())
+  const [transactions, setTransactions] = useState<Transaction[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const fetchTransactions = async () => {
+      try {
+        setLoading(true)
+        setError(null)
+
+        const response = await fetch(`/api/sheets/transactions?sheetUrl=${encodeURIComponent(sheetUrl)}`)
+        
+        if (!response.ok) {
+          const errorData = await response.json()
+          throw new Error(errorData.message || errorData.error || "Failed to fetch transactions")
+        }
+
+        const data = await response.json()
+        const grouped = groupTransactions(data.transactions || [])
+        setTransactions(grouped)
+      } catch (err: any) {
+        console.error("Error fetching transactions:", err)
+        setError(err.message || "Failed to load transactions")
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    if (sheetUrl) {
+      fetchTransactions()
+    }
+  }, [sheetUrl])
 
   const toggleFullExpand = (id: string) => {
     setFullyExpandedIds((prev) => {
@@ -126,15 +277,54 @@ export function TransactionList() {
     })
   }
 
+  if (loading) {
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold text-foreground">Recent Transactions</h2>
+        </div>
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="w-6 h-6 text-muted-foreground animate-spin" />
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold text-foreground">Recent Transactions</h2>
+        </div>
+        <div className="text-center py-8">
+          <p className="text-sm text-muted-foreground">{error}</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (transactions.length === 0) {
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold text-foreground">Recent Transactions</h2>
+        </div>
+        <div className="text-center py-8">
+          <p className="text-sm text-muted-foreground">No transactions found</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <h2 className="font-semibold text-foreground">Recent Transactions</h2>
-        <span className="text-xs text-muted-foreground">{mockTransactions.length} transactions</span>
+        <span className="text-xs text-muted-foreground">{transactions.length} transactions</span>
       </div>
 
       <Accordion type="single" collapsible value={expandedId} onValueChange={setExpandedId} className="space-y-2">
-        {mockTransactions.map((transaction) => {
+        {transactions.map((transaction) => {
           const Icon = transaction.categoryIcon
           const isFullyExpanded = fullyExpandedIds.has(transaction.id)
           const visibleItems = isFullyExpanded ? transaction.items : transaction.items.slice(0, MAX_VISIBLE_ITEMS)
