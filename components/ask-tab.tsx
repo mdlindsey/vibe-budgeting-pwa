@@ -99,7 +99,7 @@ interface Message {
 const initialPrompts = [
   { label: "Top 3 insights", icon: Sparkles },
   { label: "What changed?", icon: TrendingUp },
-  { label: "Where can I save?", icon: PiggyBank },
+  { label: "Where can I save without sacrificing?", icon: PiggyBank },
 ]
 
 const initialPromptLabels = initialPrompts.map((p) => p.label)
@@ -109,37 +109,11 @@ const STORAGE_KEYS = {
   prompts: "expense-tracker-chat-prompts",
 }
 
-const mockResponses: Record<string, Message> = {
-  "Top 3 insights": {
-    role: "assistant",
-    content:
-      "Here are your top 3 spending insights this month:\n\n1. **Dining out** is your largest category at $487, up 23% from last month\n2. **Subscriptions** total $156/month across 8 services\n3. **Groceries** spending is consistent at ~$320/month",
-    chart: {
-      type: "bar",
-      data: [
-        { name: "Dining", value: 487 },
-        { name: "Groceries", value: 320 },
-        { name: "Transport", value: 245 },
-        { name: "Subs", value: 156 },
-      ],
-    },
-    suggestedPrompts: ["Which subscriptions should I cancel?", "Compare to last month", "Set a dining budget"],
-  },
-  "What changed?": {
-    role: "assistant",
-    content:
-      "Compared to last month:\n\n📈 **Increased:** Dining (+$89), Entertainment (+$45)\n📉 **Decreased:** Groceries (-$32), Transport (-$18)\n\nYour overall spending is up 8% this month.",
-    suggestedPrompts: ["Why did dining increase?", "Show monthly trends", "Predict next month"],
-  },
-  "Where can I save?": {
-    role: "assistant",
-    content:
-      "Based on your spending patterns, here are opportunities to save:\n\n💡 **Subscriptions:** You have 3 overlapping streaming services ($42/month)\n💡 **Dining:** Cooking 2 more meals/week could save ~$120/month\n💡 **Coffee:** Your daily coffee habit costs ~$95/month",
-    suggestedPrompts: ["Help me meal plan", "Which subscriptions overlap?", "Set savings goals"],
-  },
+interface AskTabProps {
+  sheetUrl: string
 }
 
-export function AskTab() {
+export function AskTab({ sheetUrl }: AskTabProps) {
   const [messages, setMessages] = useState<Message[]>(() => {
     if (typeof window === "undefined") return []
     try {
@@ -183,7 +157,7 @@ export function AskTab() {
     }
   }, [messages])
 
-  const handleSend = (text: string) => {
+  const handleSend = async (text: string) => {
     if (!text.trim() || isLoading) return
 
     const userMessage: Message = { role: "user", content: text }
@@ -191,22 +165,96 @@ export function AskTab() {
     setInput("")
     setIsLoading(true)
 
-    setTimeout(
-      () => {
-        const response = mockResponses[text] || {
-          role: "assistant" as const,
-          content: `I analyzed your spending related to "${text}". Based on your data, you've spent an average of $45 in this category over the past 3 months. Would you like me to dive deeper into any specific transactions?`,
-          suggestedPrompts: ["Show me the transactions", "Compare to average", "Set a budget alert"],
-        }
+    // Log user message to Chat History
+    try {
+      await fetch("/api/chat/append", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          sheetUrl,
+          role: "user",
+          message: text,
+        }),
+      })
+    } catch (error) {
+      console.error("Error logging user message:", error)
+      // Continue even if logging fails
+    }
 
-        setMessages((prev) => [...prev, response])
-        if (response.suggestedPrompts) {
-          setPrompts(response.suggestedPrompts)
-        }
-        setIsLoading(false)
-      },
-      1500 + Math.random() * 500,
-    )
+    try {
+      // Prepare conversation history for context
+      const conversationHistory = messages.map((msg) => ({
+        role: msg.role,
+        content: msg.content,
+      }))
+
+      // Call the Ask API
+      const response = await fetch("/api/chat/ask", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          sheetUrl,
+          question: text,
+          conversationHistory,
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to get response")
+      }
+
+      const data = await response.json()
+
+      if (!data.success || !data.response) {
+        throw new Error(data.error || "Invalid response format")
+      }
+
+      const assistantMessage: Message = {
+        role: "assistant",
+        content: data.response.content,
+        chart: data.response.chart,
+        suggestedPrompts: data.response.suggestedPrompts,
+      }
+
+      setMessages((prev) => [...prev, assistantMessage])
+
+      // Update prompts if provided
+      if (data.response.suggestedPrompts && data.response.suggestedPrompts.length > 0) {
+        setPrompts(data.response.suggestedPrompts)
+      }
+
+      // Log assistant response to Chat History
+      try {
+        await fetch("/api/chat/append", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            sheetUrl,
+            role: "assistant",
+            message: data.response.content,
+          }),
+        })
+      } catch (error) {
+        console.error("Error logging assistant message:", error)
+        // Continue even if logging fails
+      }
+    } catch (error: any) {
+      console.error("Error sending message:", error)
+      const errorMessage: Message = {
+        role: "assistant",
+        content: `Sorry, I encountered an error: ${error.message || "Failed to process your question"}. Please try again.`,
+      }
+      setMessages((prev) => [...prev, errorMessage])
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   const handleSubmit = (e: React.FormEvent) => {

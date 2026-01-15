@@ -56,7 +56,7 @@ export function ActiveDashboard({ sheetUrl, onReset }: ActiveDashboardProps) {
               }}
             />
           ) : (
-            <AskTab />
+            <AskTab sheetUrl={sheetUrl} />
           )}
         </div>
 
