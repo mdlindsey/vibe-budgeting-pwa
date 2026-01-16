@@ -32,12 +32,13 @@ export async function POST(request: NextRequest) {
       transactionsSheetId,
       chatHistorySheetId,
     })
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error initializing spreadsheet:", error)
+    const errorMessage = error instanceof Error ? error.message : "Unknown error"
     return NextResponse.json(
       {
         error: "Failed to initialize spreadsheet",
-        message: error.message,
+        message: errorMessage,
       },
       { status: 500 }
     )

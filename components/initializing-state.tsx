@@ -64,10 +64,11 @@ export function InitializingState({ sheetUrl, onComplete }: InitializingStatePro
         if (isMounted) {
           onComplete()
         }
-      } catch (err: any) {
+      } catch (err) {
         console.error("Initialization error:", err)
         if (isMounted) {
-          setError(err.message || "Failed to initialize spreadsheet. Please check your sheet URL and permissions.")
+          const errorMessage = err instanceof Error ? err.message : "Failed to initialize spreadsheet. Please check your sheet URL and permissions."
+          setError(errorMessage)
         }
       }
     }

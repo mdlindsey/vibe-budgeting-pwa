@@ -34,18 +34,11 @@ export async function POST(request: NextRequest) {
         spreadsheetId,
         range: "Chat History!A1:A1",
       })
-    } catch (error: any) {
+    } catch (error) {
       console.error("Error verifying Chat History sheet:", error)
       return NextResponse.json({ error: "Chat History sheet not found" }, { status: 404 })
     }
 
-    // Get current data to find the next empty row
-    const existingData = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: "Chat History!A:C",
-    })
-
-    const existingRows = existingData.data.values || []
     const timestamp = new Date().toISOString()
 
     // Append the new message
@@ -62,12 +55,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
     })
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error appending chat message:", error)
+    const errorMessage = error instanceof Error ? error.message : "Unknown error"
     return NextResponse.json(
       {
         error: "Failed to append chat message",
-        message: error.message,
+        message: errorMessage,
       },
       { status: 500 }
     )

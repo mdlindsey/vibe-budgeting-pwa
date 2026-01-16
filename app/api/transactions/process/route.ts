@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import OpenAI from "openai"
 
 export interface TransactionItem {
   merchant: string
@@ -12,6 +13,23 @@ export interface ProcessTransactionResponse {
   success: boolean
   items: TransactionItem[]
   error?: string
+}
+
+interface OpenAIMessage {
+  role: "system" | "user"
+  content: string | Array<{ type: string; text?: string; image_url?: { url: string } }>
+}
+
+
+interface ParsedTransactionContent {
+  items?: TransactionItem[]
+  transactions?: TransactionItem[]
+  merchant?: string
+  item?: string
+  date?: string
+  category?: string
+  cost?: number
+  [key: string]: unknown
 }
 
 /**
@@ -40,7 +58,7 @@ export async function POST(request: NextRequest) {
 
     // Prepare messages for OpenAI
     const todayDate = new Date().toISOString().split('T')[0]
-    const messages: any[] = [
+    const messages: OpenAIMessage[] = [
       {
         role: "system",
         content: `You are a transaction data extraction assistant. Extract itemized purchase information from receipts, images, or text descriptions.
@@ -114,37 +132,36 @@ Rules:
     }
 
     // Call OpenAI API
-    // Use gpt-4o for vision, or gpt-4-turbo-preview, or fallback to gpt-4
     const model = image ? "gpt-4o" : "gpt-4-turbo-preview"
     
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model,
-        messages,
-        response_format: { type: "json_object" },
-        temperature: 0.3,
-      }),
-    })
+    const openai = new OpenAI({ apiKey })
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}))
-      console.error("OpenAI API error:", errorData)
+    let content: string
+    try {
+      const completion = await openai.chat.completions.create({
+        model,
+        messages: messages as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+        response_format: { type: "json_object" },
+        temperature: 1,
+      })
+
+      content = completion.choices[0]?.message?.content || ""
+    } catch (error) {
+      console.error("OpenAI API error:", error)
+      const errorMessage =
+        error instanceof OpenAI.APIError
+          ? error.message
+          : error instanceof Error
+            ? error.message
+            : "Failed to process with OpenAI"
       return NextResponse.json(
         {
           success: false,
-          error: errorData.error?.message || "Failed to process with OpenAI",
+          error: errorMessage,
         },
-        { status: response.status }
+        { status: error instanceof OpenAI.APIError ? error.status : 500 }
       )
     }
-
-    const data = await response.json()
-    const content = data.choices?.[0]?.message?.content
 
     if (!content) {
       return NextResponse.json(
@@ -154,10 +171,10 @@ Rules:
     }
 
     // Parse the JSON response
-    let parsedContent: any
+    let parsedContent: ParsedTransactionContent
     try {
-      parsedContent = JSON.parse(content)
-    } catch (error) {
+      parsedContent = JSON.parse(content) as ParsedTransactionContent
+    } catch (_error) {
       console.error("Failed to parse OpenAI response:", content)
       return NextResponse.json(
         { success: false, error: "Invalid response format from OpenAI" },
@@ -175,7 +192,7 @@ Rules:
     } else if (parsedContent.transactions && Array.isArray(parsedContent.transactions)) {
       items = parsedContent.transactions
     } else if (Array.isArray(parsedContent)) {
-      items = parsedContent
+      items = parsedContent as TransactionItem[]
     } else {
       // Try to find any array in the response
       const keys = Object.keys(parsedContent)
@@ -194,7 +211,7 @@ Rules:
 
     // Validate and normalize items
     const validatedItems: TransactionItem[] = items
-      .map((item: any) => {
+      .map((item: ParsedTransactionContent) => {
         // Ensure all required fields are present
         if (!item.merchant || !item.item || item.cost === undefined) {
           return null
@@ -221,12 +238,13 @@ Rules:
       success: true,
       items: validatedItems,
     })
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error processing transaction:", error)
+    const errorMessage = error instanceof Error ? error.message : "Failed to process transaction"
     return NextResponse.json(
       {
         success: false,
-        error: error.message || "Failed to process transaction",
+        error: errorMessage,
       },
       { status: 500 }
     )

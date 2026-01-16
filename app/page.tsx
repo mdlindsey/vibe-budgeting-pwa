@@ -12,12 +12,16 @@ export default function Home() {
   const [sheetUrl, setSheetUrl] = useState<string>("")
 
   useEffect(() => {
+    // Read from localStorage after hydration to avoid hydration mismatch
+    // This is necessary because localStorage is only available on the client
+    /* eslint-disable react-hooks/set-state-in-effect */
     const storedUrl = localStorage.getItem("expense-tracker-sheet-url")
     if (storedUrl) {
       setSheetUrl(storedUrl)
       setAppState("active")
     }
     window.scrollTo({ top: 0, behavior: "instant" })
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, [])
 
   const handleSetupComplete = (url: string) => {

@@ -1,4 +1,7 @@
 import { google } from "googleapis"
+import type { sheets_v4 } from "googleapis"
+
+type SheetRequest = sheets_v4.Schema$Request
 
 /**
  * Format the Transactions sheet according to the specification
@@ -8,7 +11,7 @@ export async function formatTransactionsSheet(
   spreadsheetId: string,
   sheetId: number
 ) {
-  const requests: any[] = []
+  const requests: SheetRequest[] = []
 
   // 1. Set header row (A1:E1)
   requests.push({
@@ -72,7 +75,7 @@ export async function formatTransactionsSheet(
   })
 
   // 4. Format columns starting from row 2
-  // Column A (Merchant): Text, left aligned
+  // Column A (Merchant): Text, left aligned, NOT bold
   requests.push({
     repeatCell: {
       range: {
@@ -83,14 +86,17 @@ export async function formatTransactionsSheet(
       },
       cell: {
         userEnteredFormat: {
+          textFormat: {
+            bold: false,
+          },
           horizontalAlignment: "LEFT",
         },
       },
-      fields: "userEnteredFormat.horizontalAlignment",
+      fields: "userEnteredFormat.textFormat.bold,userEnteredFormat.horizontalAlignment",
     },
   })
 
-  // Column B (Date): Date format "mmmm d, yyyy" (e.g. January 14, 2026), left aligned
+  // Column B (Date): Date format "mmmm d, yyyy" (e.g. January 14, 2026), left aligned, NOT bold
   requests.push({
     repeatCell: {
       range: {
@@ -101,6 +107,9 @@ export async function formatTransactionsSheet(
       },
       cell: {
         userEnteredFormat: {
+          textFormat: {
+            bold: false,
+          },
           numberFormat: {
             type: "DATE",
             pattern: "mmmm d, yyyy",
@@ -108,11 +117,11 @@ export async function formatTransactionsSheet(
           horizontalAlignment: "LEFT",
         },
       },
-      fields: "userEnteredFormat.numberFormat,userEnteredFormat.horizontalAlignment",
+      fields: "userEnteredFormat.textFormat.bold,userEnteredFormat.numberFormat,userEnteredFormat.horizontalAlignment",
     },
   })
 
-  // Column C (Category): Text, left aligned
+  // Column C (Category): Text, left aligned, NOT bold
   requests.push({
     repeatCell: {
       range: {
@@ -123,14 +132,17 @@ export async function formatTransactionsSheet(
       },
       cell: {
         userEnteredFormat: {
+          textFormat: {
+            bold: false,
+          },
           horizontalAlignment: "LEFT",
         },
       },
-      fields: "userEnteredFormat.horizontalAlignment",
+      fields: "userEnteredFormat.textFormat.bold,userEnteredFormat.horizontalAlignment",
     },
   })
 
-  // Column D (Item): Text, wrap text ON, left aligned
+  // Column D (Item): Text, wrap text ON, left aligned, NOT bold
   requests.push({
     repeatCell: {
       range: {
@@ -141,15 +153,18 @@ export async function formatTransactionsSheet(
       },
       cell: {
         userEnteredFormat: {
+          textFormat: {
+            bold: false,
+          },
           wrapStrategy: "WRAP",
           horizontalAlignment: "LEFT",
         },
       },
-      fields: "userEnteredFormat.wrapStrategy,userEnteredFormat.horizontalAlignment",
+      fields: "userEnteredFormat.textFormat.bold,userEnteredFormat.wrapStrategy,userEnteredFormat.horizontalAlignment",
     },
   })
 
-  // Column E (Cost): Currency format "$#,##0.00", right aligned
+  // Column E (Cost): Currency format "$#,##0.00", right aligned, NOT bold
   requests.push({
     repeatCell: {
       range: {
@@ -160,6 +175,9 @@ export async function formatTransactionsSheet(
       },
       cell: {
         userEnteredFormat: {
+          textFormat: {
+            bold: false,
+          },
           numberFormat: {
             type: "CURRENCY",
             pattern: '"$"#,##0.00',
@@ -167,7 +185,7 @@ export async function formatTransactionsSheet(
           horizontalAlignment: "RIGHT",
         },
       },
-      fields: "userEnteredFormat.numberFormat,userEnteredFormat.horizontalAlignment",
+      fields: "userEnteredFormat.textFormat.bold,userEnteredFormat.numberFormat,userEnteredFormat.horizontalAlignment",
     },
   })
 
@@ -307,7 +325,7 @@ export async function formatChatHistorySheet(
   spreadsheetId: string,
   sheetId: number
 ) {
-  const requests: any[] = []
+  const requests: SheetRequest[] = []
 
   // 1. Set header row (A1:C1)
   requests.push({
@@ -369,7 +387,7 @@ export async function formatChatHistorySheet(
   })
 
   // 4. Format columns starting from row 2
-  // Column A (Role): Text, left aligned
+  // Column A (Role): Text, left aligned, NOT bold
   requests.push({
     repeatCell: {
       range: {
@@ -380,14 +398,17 @@ export async function formatChatHistorySheet(
       },
       cell: {
         userEnteredFormat: {
+          textFormat: {
+            bold: false,
+          },
           horizontalAlignment: "LEFT",
         },
       },
-      fields: "userEnteredFormat.horizontalAlignment",
+      fields: "userEnteredFormat.textFormat.bold,userEnteredFormat.horizontalAlignment",
     },
   })
 
-  // Column B (Message): Text, wrap text ON, left aligned
+  // Column B (Message): Text, wrap text ON, left aligned, NOT bold
   requests.push({
     repeatCell: {
       range: {
@@ -398,15 +419,18 @@ export async function formatChatHistorySheet(
       },
       cell: {
         userEnteredFormat: {
+          textFormat: {
+            bold: false,
+          },
           wrapStrategy: "WRAP",
           horizontalAlignment: "LEFT",
         },
       },
-      fields: "userEnteredFormat.wrapStrategy,userEnteredFormat.horizontalAlignment",
+      fields: "userEnteredFormat.textFormat.bold,userEnteredFormat.wrapStrategy,userEnteredFormat.horizontalAlignment",
     },
   })
 
-  // Column C (Timestamp): Date/Time format, left aligned
+  // Column C (Timestamp): Date/Time format, left aligned, NOT bold
   requests.push({
     repeatCell: {
       range: {
@@ -417,10 +441,13 @@ export async function formatChatHistorySheet(
       },
       cell: {
         userEnteredFormat: {
+          textFormat: {
+            bold: false,
+          },
           horizontalAlignment: "LEFT",
         },
       },
-      fields: "userEnteredFormat.horizontalAlignment",
+      fields: "userEnteredFormat.textFormat.bold,userEnteredFormat.horizontalAlignment",
     },
   })
 

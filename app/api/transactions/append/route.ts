@@ -2,6 +2,13 @@ import { NextRequest, NextResponse } from "next/server"
 import { extractSpreadsheetId, getSheetsClient, getSheetId } from "@/lib/google-sheets"
 import { TransactionItem } from "../process/route"
 
+interface GoogleSheetsError extends Error {
+  code?: number
+  message: string
+}
+
+type SheetRowValue = string | number
+
 /**
  * Append transactions to the Transactions sheet
  * Handles merged cells for merchant and date when there are multiple items
@@ -33,12 +40,13 @@ export async function POST(request: NextRequest) {
         spreadsheetId,
         range: "Transactions!A1:A1", // Just check if the sheet exists
       })
-    } catch (error: any) {
+    } catch (error) {
       console.error("Error verifying Transactions sheet:", error)
       // Check if it's a "sheet not found" error
-      const errorMessage = error.message?.toLowerCase() || ""
+      const sheetsError = error as GoogleSheetsError
+      const errorMessage = sheetsError.message?.toLowerCase() || ""
       if (
-        error.code === 400 ||
+        sheetsError.code === 400 ||
         errorMessage.includes("unable to parse range") ||
         errorMessage.includes("not found") ||
         errorMessage.includes("does not exist")
@@ -68,31 +76,33 @@ export async function POST(request: NextRequest) {
       range: "Transactions!A:E",
     })
 
-    const existingRows = existingData.data.values || []
-    const startRowIndex = existingRows.length // This will be the first row we append (0-indexed, so row 1 = header, row 2 = first data)
+    const startRowIndex = (existingData.data.values || []).length // This will be the first row we append (0-indexed, so row 1 = header, row 2 = first data)
 
     // Prepare rows to append
     // For each transaction group, we'll append rows and then merge the merchant/date cells
-    const allRows: any[][] = []
+    const allRows: SheetRowValue[][] = []
     const mergeRanges: Array<{ startRow: number; endRow: number }> = []
 
     let currentRowOffset = 0
 
-    for (const [key, groupItems] of transactionGroups.entries()) {
+    for (const [_key, groupItems] of transactionGroups.entries()) {
       const firstItem = groupItems[0]
       const transactionStartRow = startRowIndex + currentRowOffset
       const transactionEndRow = transactionStartRow + groupItems.length - 1
 
       // Add rows for all items in this transaction
       for (const item of groupItems) {
-        // Convert date to a date value that Google Sheets can format
-        // Parse ISO date string to a date object
-        const dateValue = new Date(item.date + "T00:00:00")
-        const serialDate = (dateValue.getTime() - new Date(1899, 11, 30).getTime()) / (24 * 60 * 60 * 1000) + 1
+        // Convert ISO date string (YYYY-MM-DD) to a format Google Sheets recognizes
+        // Using USER_ENTERED, Google Sheets will parse date strings like "7/29/2014" or "2014-07-29"
+        // Parse the ISO date and format it as M/D/YYYY for better compatibility
+        const dateParts = item.date.split("-")
+        const formattedDate = dateParts.length === 3 
+          ? `${parseInt(dateParts[1], 10)}/${parseInt(dateParts[2], 10)}/${dateParts[0]}` 
+          : item.date
 
         allRows.push([
           item === firstItem ? item.merchant : "", // Only first row has merchant
-          item === firstItem ? serialDate : "", // Only first row has date (as serial number)
+          item === firstItem ? formattedDate : "", // Only first row has date (as formatted string)
           item.category,
           item.item,
           item.cost, // Numeric value
@@ -169,12 +179,13 @@ export async function POST(request: NextRequest) {
       rowsAdded: allRows.length,
       transactionsAdded: transactionGroups.size,
     })
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error appending transactions:", error)
+    const errorMessage = error instanceof Error ? error.message : "Unknown error"
     return NextResponse.json(
       {
         error: "Failed to append transactions",
-        message: error.message,
+        message: errorMessage,
       },
       { status: 500 }
     )

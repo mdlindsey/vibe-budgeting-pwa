@@ -20,15 +20,26 @@ export function AppHeader({ sheetUrl, onReset }: AppHeaderProps) {
   const [theme, setTheme] = useState<"light" | "dark">("light")
 
   useEffect(() => {
+    // Read from localStorage after hydration to avoid hydration mismatch
+    // This is necessary because localStorage is only available on the client
+    /* eslint-disable react-hooks/set-state-in-effect */
     const stored = localStorage.getItem("expense-tracker-theme") as "light" | "dark" | null
     if (stored) {
       setTheme(stored)
       document.documentElement.classList.toggle("dark", stored === "dark")
-    } else if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
-      setTheme("dark")
-      document.documentElement.classList.add("dark")
+    } else {
+      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches
+      if (prefersDark) {
+        setTheme("dark")
+        document.documentElement.classList.add("dark")
+      }
     }
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, [])
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", theme === "dark")
+  }, [theme])
 
   const toggleTheme = () => {
     const newTheme = theme === "light" ? "dark" : "light"

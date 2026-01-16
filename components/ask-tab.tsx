@@ -245,11 +245,12 @@ export function AskTab({ sheetUrl }: AskTabProps) {
         console.error("Error logging assistant message:", error)
         // Continue even if logging fails
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error("Error sending message:", error)
+      const errorMessageText = error instanceof Error ? error.message : "Failed to process your question"
       const errorMessage: Message = {
         role: "assistant",
-        content: `Sorry, I encountered an error: ${error.message || "Failed to process your question"}. Please try again.`,
+        content: `Sorry, I encountered an error: ${errorMessageText}. Please try again.`,
       }
       setMessages((prev) => [...prev, errorMessage])
     } finally {

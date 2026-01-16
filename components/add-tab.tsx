@@ -111,11 +111,12 @@ export function AddTab({ sheetUrl, onTransactionAdded }: AddTabProps) {
       if (onTransactionAdded) {
         onTransactionAdded()
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error("Error submitting transaction:", error)
+      const errorMessage = error instanceof Error ? error.message : "Failed to add transaction"
       toast({
         title: "Error",
-        description: error.message || "Failed to add transaction",
+        description: errorMessage,
         variant: "destructive",
       })
     } finally {
@@ -202,7 +203,7 @@ export function AddTab({ sheetUrl, onTransactionAdded }: AddTabProps) {
       </div>
 
       <p className="text-xs text-center text-muted-foreground">
-        Add a photo or enter text (or both) to log a transaction
+        Add receipts, screenshots, photos or just describe your purchase
       </p>
     </div>
   )

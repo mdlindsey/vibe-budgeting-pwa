@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { extractSpreadsheetId, getSheetsClient } from "@/lib/google-sheets"
+import OpenAI from "openai"
 
 export interface ChatResponse {
   content: string
@@ -7,6 +8,26 @@ export interface ChatResponse {
     type: "bar" | "line"
     data: { name: string; value: number }[]
   }
+  suggestedPrompts?: string[]
+}
+
+interface Transaction {
+  merchant: string
+  date: string
+  category: string
+  item: string
+  cost: number
+}
+
+interface OpenAIMessage {
+  role: "system" | "user" | "assistant"
+  content: string | Array<{ type: string; text?: string; image_url?: { url: string } }>
+}
+
+
+interface ParsedChatContent {
+  content?: string
+  chart?: ChatResponse["chart"]
   suggestedPrompts?: string[]
 }
 
@@ -48,7 +69,7 @@ export async function POST(request: NextRequest) {
     const sheets = await getSheetsClient()
 
     // Read transactions
-    let transactions: any[] = []
+    let transactions: Transaction[] = []
     try {
       const response = await sheets.spreadsheets.values.get({
         spreadsheetId,
@@ -76,13 +97,13 @@ export async function POST(request: NextRequest) {
           })
         }
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error("Error reading transactions:", error)
       // Continue even if we can't read transactions - OpenAI can still answer general questions
     }
 
     // Prepare messages for OpenAI
-    const messages: any[] = [
+    const messages: OpenAIMessage[] = [
       {
         role: "system",
         content: `You are a helpful financial assistant that analyzes spending data. You help users understand their spending patterns, find savings opportunities, and answer questions about their transactions.
@@ -127,34 +148,34 @@ Now answer the user's question about their spending.`,
     })
 
     // Call OpenAI API
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
+    const openai = new OpenAI({ apiKey })
+
+    let content: string
+    try {
+      const completion = await openai.chat.completions.create({
         model: "gpt-4-turbo-preview",
-        messages,
+        messages: messages as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
         response_format: { type: "json_object" },
         temperature: 0.7,
-      }),
-    })
+      })
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}))
-      console.error("OpenAI API error:", errorData)
+      content = completion.choices[0]?.message?.content || ""
+    } catch (error) {
+      console.error("OpenAI API error:", error)
+      const errorMessage =
+        error instanceof OpenAI.APIError
+          ? error.message
+          : error instanceof Error
+            ? error.message
+            : "Failed to process question"
       return NextResponse.json(
         {
           success: false,
-          error: errorData.error?.message || "Failed to process question",
+          error: errorMessage,
         },
-        { status: response.status }
+        { status: error instanceof OpenAI.APIError ? error.status : 500 }
       )
     }
-
-    const data = await response.json()
-    const content = data.choices?.[0]?.message?.content
 
     if (!content) {
       return NextResponse.json(
@@ -164,10 +185,10 @@ Now answer the user's question about their spending.`,
     }
 
     // Parse the JSON response
-    let parsedContent: any
+    let parsedContent: ParsedChatContent
     try {
-      parsedContent = JSON.parse(content)
-    } catch (error) {
+      parsedContent = JSON.parse(content) as ParsedChatContent
+    } catch (_error) {
       console.error("Failed to parse OpenAI response:", content)
       return NextResponse.json(
         { success: false, error: "Invalid response format from OpenAI" },
@@ -186,12 +207,13 @@ Now answer the user's question about their spending.`,
       success: true,
       response: chatResponse,
     })
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error processing chat question:", error)
+    const errorMessage = error instanceof Error ? error.message : "Failed to process question"
     return NextResponse.json(
       {
         success: false,
-        error: error.message || "Failed to process question",
+        error: errorMessage,
       },
       { status: 500 }
     )

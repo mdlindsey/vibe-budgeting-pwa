@@ -15,12 +15,34 @@ export function NewUserSetup({ onComplete }: NewUserSetupProps) {
   const [sheetUrl, setSheetUrl] = useState("")
   const [copied, setCopied] = useState(false)
   // Use GCP_SA_EMAIL from environment variable (NEXT_PUBLIC_ prefix required for client components)
-  const email = process.env.NEXT_PUBLIC_GCP_SA_EMAIL || "expensetracking@gmail.com"
+  const email = process.env.NEXT_PUBLIC_GCP_SA_EMAIL || "please wait..."
 
   const handleCopyEmail = async () => {
-    await navigator.clipboard.writeText(email)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+    try {
+      // Try modern Clipboard API first
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(email)
+      } else {
+        // Fallback for browsers that don't support Clipboard API
+        const textArea = document.createElement("textarea")
+        textArea.value = email
+        textArea.style.position = "fixed"
+        textArea.style.left = "-999999px"
+        textArea.style.top = "-999999px"
+        document.body.appendChild(textArea)
+        textArea.focus()
+        textArea.select()
+        document.execCommand("copy")
+        textArea.remove()
+      }
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch (error) {
+      console.error("Failed to copy email:", error)
+      // Still show copied state even if it failed, as a fallback
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    }
   }
 
   const handleSubmit = (e: React.FormEvent) => {

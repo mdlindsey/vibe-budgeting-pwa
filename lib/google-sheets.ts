@@ -1,5 +1,19 @@
 import { google } from "googleapis"
 
+interface GoogleAuthCredentials {
+  type: string
+  project_id?: string
+  private_key_id?: string
+  private_key?: string
+  client_email?: string
+  client_id?: string
+  auth_uri?: string
+  token_uri?: string
+  auth_provider_x509_cert_url?: string
+  client_x509_cert_url?: string
+  [key: string]: unknown
+}
+
 /**
  * Extract spreadsheet ID from a Google Sheets URL
  * Supports formats like:
@@ -17,7 +31,7 @@ export function extractSpreadsheetId(url: string): string | null {
 export async function getSheetsClient() {
   // Parse GCP_SA_CREDENTIALS from environment variable
   // It can be either a JSON string or already parsed
-  let credentials: any = undefined
+  let credentials: GoogleAuthCredentials | undefined = undefined
   
   if (process.env.GCP_SA_CREDENTIALS) {
     try {
@@ -58,37 +72,89 @@ export async function getOrCreateSheet(
       spreadsheetId,
     })
 
-    // Find existing sheet
-    const existingSheet = spreadsheet.data.sheets?.find(
-      (sheet) => sheet.properties?.title === sheetName
+    // Find existing sheet - try exact match, case-insensitive, and trimmed
+    const normalizedSheetName = sheetName.trim()
+    let existingSheet = spreadsheet.data.sheets?.find(
+      (sheet) => sheet.properties?.title === normalizedSheetName
     )
 
+    // Try case-insensitive match
+    if (!existingSheet) {
+      existingSheet = spreadsheet.data.sheets?.find(
+        (sheet) => sheet.properties?.title?.toLowerCase() === normalizedSheetName.toLowerCase()
+      )
+    }
+
+    // Try trimmed match
+    if (!existingSheet) {
+      existingSheet = spreadsheet.data.sheets?.find(
+        (sheet) => sheet.properties?.title?.trim() === normalizedSheetName
+      )
+    }
+
     if (existingSheet?.properties?.sheetId !== undefined) {
+      console.log(`Found existing sheet "${sheetName}" with ID: ${existingSheet.properties.sheetId}`)
       return existingSheet.properties.sheetId
     }
 
     // Create new sheet
-    const response = await sheets.spreadsheets.batchUpdate({
-      spreadsheetId,
-      requestBody: {
-        requests: [
-          {
-            addSheet: {
-              properties: {
-                title: sheetName,
+    try {
+      const response = await sheets.spreadsheets.batchUpdate({
+        spreadsheetId,
+        requestBody: {
+          requests: [
+            {
+              addSheet: {
+                properties: {
+                  title: normalizedSheetName,
+                },
               },
             },
-          },
-        ],
-      },
-    })
+          ],
+        },
+      })
 
-    const newSheetId = response.data.replies?.[0]?.addSheet?.properties?.sheetId
-    if (newSheetId === undefined) {
-      throw new Error(`Failed to create sheet: ${sheetName}`)
+      const newSheetId = response.data.replies?.[0]?.addSheet?.properties?.sheetId
+      if (newSheetId === undefined) {
+        throw new Error(`Failed to create sheet: ${sheetName}`)
+      }
+
+      console.log(`Created new sheet "${sheetName}" with ID: ${newSheetId}`)
+      return newSheetId
+    } catch (createError) {
+      // If creation fails, it might be because the sheet already exists
+      // (e.g., race condition or the sheet was created between our check and creation)
+      // Try to find it again
+      const errorMessage = createError instanceof Error ? createError.message : String(createError)
+      
+      if (errorMessage.includes("already exists") || errorMessage.includes("duplicate")) {
+        console.log(`Sheet "${sheetName}" creation failed (may already exist), searching again...`)
+        
+        // Re-fetch spreadsheet to get latest state
+        const updatedSpreadsheet = await sheets.spreadsheets.get({
+          spreadsheetId,
+        })
+
+        // Try to find the sheet again (including any conflict-suffixed versions)
+        const foundSheet = updatedSpreadsheet.data.sheets?.find(
+          (sheet) => {
+            const title = sheet.properties?.title || ""
+            return title === normalizedSheetName || 
+                   title.toLowerCase() === normalizedSheetName.toLowerCase() ||
+                   title.trim() === normalizedSheetName ||
+                   title.startsWith(normalizedSheetName + "_conflict")
+          }
+        )
+
+        if (foundSheet?.properties?.sheetId !== undefined) {
+          console.log(`Found sheet "${foundSheet.properties.title}" (may be conflict version) with ID: ${foundSheet.properties.sheetId}`)
+          return foundSheet.properties.sheetId
+        }
+      }
+
+      // Re-throw if we couldn't handle it
+      throw createError
     }
-
-    return newSheetId
   } catch (error) {
     console.error(`Error getting/creating sheet ${sheetName}:`, error)
     throw error

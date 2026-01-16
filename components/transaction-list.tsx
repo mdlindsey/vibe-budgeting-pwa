@@ -89,7 +89,7 @@ const groupTransactions = (rows: TransactionRow[]): Transaction[] => {
   const transactions: Transaction[] = []
   let idCounter = 1
 
-  for (const [key, items] of grouped.entries()) {
+  for (const [_key, items] of grouped.entries()) {
     if (items.length === 0) continue
 
     const firstItem = items[0]
@@ -139,94 +139,6 @@ const groupTransactions = (rows: TransactionRow[]): Transaction[] => {
   return transactions
 }
 
-const mockTransactions: Transaction[] = [
-  {
-    id: "1",
-    merchant: "Whole Foods Market",
-    date: "Today",
-    category: "Groceries",
-    categoryIcon: ShoppingBag,
-    itemCount: 27,
-    total: 187.43,
-    items: [
-      { name: "Organic Bananas", price: 2.49 },
-      { name: "Almond Milk", price: 4.99 },
-      { name: "Chicken Breast", price: 12.99 },
-      { name: "Mixed Greens", price: 5.99 },
-      { name: "Greek Yogurt", price: 6.49 },
-      { name: "Sourdough Bread", price: 4.99 },
-    ],
-  },
-  {
-    id: "2",
-    merchant: "Chipotle",
-    date: "Yesterday",
-    category: "Dining",
-    categoryIcon: Utensils,
-    itemCount: 3,
-    total: 24.56,
-    items: [
-      { name: "Burrito Bowl", price: 11.25 },
-      { name: "Chips & Guac", price: 5.95 },
-      { name: "Drink", price: 3.25 },
-    ],
-  },
-  {
-    id: "3",
-    merchant: "Shell Gas Station",
-    date: "2 days ago",
-    category: "Transport",
-    categoryIcon: Car,
-    itemCount: 1,
-    total: 52.18,
-    items: [{ name: "Regular Unleaded - 14.2 gal", price: 52.18 }],
-  },
-  {
-    id: "4",
-    merchant: "Steam",
-    date: "3 days ago",
-    category: "Entertainment",
-    categoryIcon: Gamepad2,
-    itemCount: 2,
-    total: 49.98,
-    items: [
-      { name: "Elden Ring DLC", price: 39.99 },
-      { name: "Indie Bundle", price: 9.99 },
-    ],
-  },
-  {
-    id: "5",
-    merchant: "CVS Pharmacy",
-    date: "4 days ago",
-    category: "Health",
-    categoryIcon: Heart,
-    itemCount: 4,
-    total: 32.47,
-    items: [
-      { name: "Vitamins", price: 14.99 },
-      { name: "Allergy Medicine", price: 9.99 },
-      { name: "Bandages", price: 4.49 },
-      { name: "Hand Sanitizer", price: 3.0 },
-    ],
-  },
-  {
-    id: "6",
-    merchant: "Home Depot",
-    date: "1 week ago",
-    category: "Home",
-    categoryIcon: Home,
-    itemCount: 5,
-    total: 127.84,
-    items: [
-      { name: "LED Light Bulbs (4pk)", price: 24.99 },
-      { name: "Drill Bit Set", price: 34.99 },
-      { name: "Paint Brush Set", price: 18.99 },
-      { name: "Caulk Gun", price: 12.99 },
-      { name: "Mounting Hardware", price: 8.99 },
-    ],
-  },
-]
-
 const MAX_VISIBLE_ITEMS = 5
 
 export function TransactionList({ sheetUrl }: TransactionListProps) {
@@ -252,9 +164,10 @@ export function TransactionList({ sheetUrl }: TransactionListProps) {
         const data = await response.json()
         const grouped = groupTransactions(data.transactions || [])
         setTransactions(grouped)
-      } catch (err: any) {
+      } catch (err) {
         console.error("Error fetching transactions:", err)
-        setError(err.message || "Failed to load transactions")
+        const errorMessage = err instanceof Error ? err.message : "Failed to load transactions"
+        setError(errorMessage)
       } finally {
         setLoading(false)
       }

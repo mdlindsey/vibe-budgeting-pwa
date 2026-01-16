@@ -9,6 +9,12 @@ export interface TransactionRow {
   cost: number
 }
 
+interface GoogleSheetsError extends Error {
+  code?: number
+  status?: number
+  message: string
+}
+
 /**
  * Read transactions from the Transactions sheet
  * Groups rows by merchant and date to form transactions
@@ -38,11 +44,12 @@ export async function GET(request: NextRequest) {
         spreadsheetId,
         range: "Transactions!A2:E",
       })
-    } catch (error: any) {
+    } catch (error) {
       console.error("Error reading Transactions sheet:", error)
       // Check if the error is about the sheet not existing
-      const errorMessage = error.message?.toLowerCase() || ""
-      const errorCode = error.code || error.status
+      const sheetsError = error as GoogleSheetsError
+      const errorMessage = sheetsError.message?.toLowerCase() || ""
+      const errorCode = sheetsError.code || sheetsError.status
       
       if (
         errorCode === 400 ||
@@ -108,12 +115,13 @@ export async function GET(request: NextRequest) {
       transactions,
       count: transactions.length,
     })
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error reading transactions:", error)
+    const errorMessage = error instanceof Error ? error.message : "Unknown error"
     return NextResponse.json(
       {
         error: "Failed to read transactions",
-        message: error.message,
+        message: errorMessage,
       },
       { status: 500 }
     )
