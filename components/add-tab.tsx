@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useRef, useState } from "react"
+import { useRef, useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Camera, ImageIcon, Send, X, Loader2 } from "lucide-react"
@@ -14,15 +14,30 @@ interface AddTabProps {
   onTransactionAdded?: () => void
 }
 
+interface ImageWithPreview {
+  file: File
+  preview: string
+}
+
 export function AddTab({ sheetUrl, onTransactionAdded }: AddTabProps) {
   const [details, setDetails] = useState("")
-  const [imageFile, setImageFile] = useState<File | null>(null)
+  const [images, setImages] = useState<ImageWithPreview[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [enlargedImageIndex, setEnlargedImageIndex] = useState<number | null>(null)
   const { toast } = useToast()
 
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const photoInputRef = useRef<HTMLInputElement>(null)
   const { handleFocus, handleBlur } = useKeyboardScroll()
+
+  // Clean up object URLs when component unmounts
+  useEffect(() => {
+    return () => {
+      images.forEach((img) => {
+        URL.revokeObjectURL(img.preview)
+      })
+    }
+  }, [images])
 
   const handleScanReceipt = () => {
     // Trigger camera capture
@@ -35,20 +50,54 @@ export function AddTab({ sheetUrl, onTransactionAdded }: AddTabProps) {
   }
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) {
-      setImageFile(file)
+    const files = Array.from(e.target.files || [])
+    if (files.length > 0) {
+      const newImages: ImageWithPreview[] = files.map((file) => ({
+        file,
+        preview: URL.createObjectURL(file),
+      }))
+      setImages((prev) => [...prev, ...newImages])
     }
     // Reset input so same file can be selected again
     e.target.value = ""
   }
 
-  const handleRemoveImage = () => {
-    setImageFile(null)
+  const handleRemoveImage = (indexToRemove: number, e?: React.MouseEvent) => {
+    e?.stopPropagation() // Prevent opening modal when removing
+    setImages((prev) => {
+      const imageToRemove = prev[indexToRemove]
+      if (imageToRemove) {
+        URL.revokeObjectURL(imageToRemove.preview)
+      }
+      return prev.filter((_, index) => index !== indexToRemove)
+    })
+    // Close modal if the enlarged image is being removed
+    if (enlargedImageIndex === indexToRemove) {
+      setEnlargedImageIndex(null)
+    }
   }
 
+  const handleImageClick = (index: number) => {
+    setEnlargedImageIndex(index)
+  }
+
+  const handleCloseModal = () => {
+    setEnlargedImageIndex(null)
+  }
+
+  // Handle ESC key to close modal
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && enlargedImageIndex !== null) {
+        setEnlargedImageIndex(null)
+      }
+    }
+    window.addEventListener("keydown", handleEscape)
+    return () => window.removeEventListener("keydown", handleEscape)
+  }, [enlargedImageIndex])
+
   const handleSubmit = async () => {
-    if (!details.trim() && !imageFile) {
+    if (!details.trim() && images.length === 0) {
       return
     }
 
@@ -57,9 +106,9 @@ export function AddTab({ sheetUrl, onTransactionAdded }: AddTabProps) {
     try {
       // Step 1: Process with OpenAI
       const formData = new FormData()
-      if (imageFile) {
-        formData.append("image", imageFile)
-      }
+      images.forEach((img) => {
+        formData.append("images", img.file)
+      })
       if (details.trim()) {
         formData.append("text", details.trim())
       }
@@ -70,8 +119,15 @@ export function AddTab({ sheetUrl, onTransactionAdded }: AddTabProps) {
       })
 
       if (!processResponse.ok) {
-        const errorData = await processResponse.json()
-        throw new Error(errorData.error || "Failed to process transaction")
+        let errorMessage = "Failed to process transaction"
+        try {
+          const errorData = await processResponse.json()
+          errorMessage = errorData.error || errorData.message || errorMessage
+        } catch {
+          // If response is not JSON, use status text
+          errorMessage = processResponse.statusText || errorMessage
+        }
+        throw new Error(errorMessage)
       }
 
       const processData = await processResponse.json()
@@ -93,8 +149,15 @@ export function AddTab({ sheetUrl, onTransactionAdded }: AddTabProps) {
       })
 
       if (!appendResponse.ok) {
-        const errorData = await appendResponse.json()
-        throw new Error(errorData.error || "Failed to add transaction to spreadsheet")
+        let errorMessage = "Failed to add transaction to spreadsheet"
+        try {
+          const errorData = await appendResponse.json()
+          errorMessage = errorData.error || errorData.message || errorMessage
+        } catch {
+          // If response is not JSON, use status text
+          errorMessage = appendResponse.statusText || errorMessage
+        }
+        throw new Error(errorMessage)
       }
 
       // Success!
@@ -105,7 +168,10 @@ export function AddTab({ sheetUrl, onTransactionAdded }: AddTabProps) {
 
       // Clear form
       setDetails("")
-      setImageFile(null)
+      images.forEach((img) => {
+        URL.revokeObjectURL(img.preview)
+      })
+      setImages([])
 
       // Refresh transaction list
       if (onTransactionAdded) {
@@ -114,17 +180,19 @@ export function AddTab({ sheetUrl, onTransactionAdded }: AddTabProps) {
     } catch (error) {
       console.error("Error submitting transaction:", error)
       const errorMessage = error instanceof Error ? error.message : "Failed to add transaction"
+      console.log("Showing toast with error:", errorMessage)
       toast({
         title: "Error",
         description: errorMessage,
         variant: "destructive",
       })
+      console.log("Toast called")
     } finally {
       setIsSubmitting(false)
     }
   }
 
-  const canSubmit = (details.trim() || imageFile) && !isSubmitting
+  const canSubmit = (details.trim() || images.length > 0) && !isSubmitting
 
   return (
     <div className="space-y-4">
@@ -133,6 +201,7 @@ export function AddTab({ sheetUrl, onTransactionAdded }: AddTabProps) {
         type="file"
         accept="image/*"
         capture="environment"
+        multiple
         onChange={handleFileChange}
         className="hidden"
         aria-hidden="true"
@@ -141,6 +210,7 @@ export function AddTab({ sheetUrl, onTransactionAdded }: AddTabProps) {
         ref={photoInputRef}
         type="file"
         accept="image/*"
+        multiple
         onChange={handleFileChange}
         className="hidden"
         aria-hidden="true"
@@ -165,17 +235,60 @@ export function AddTab({ sheetUrl, onTransactionAdded }: AddTabProps) {
         </Button>
       </div>
 
-      {imageFile && (
-        <div className="bg-accent/50 rounded-xl p-3 flex items-center justify-between gap-3">
-          <span className="text-sm text-accent-foreground truncate flex-1">{imageFile.name}</span>
+      {images.length > 0 && (
+        <div className="overflow-x-auto pb-2 -mx-4 px-4">
+          <div className="flex gap-3 justify-center min-w-max">
+            {images.map((img, index) => (
+              <div key={index} className="relative bg-card rounded-xl border border-border flex-shrink-0 cursor-pointer" onClick={() => handleImageClick(index)}>
+                <div className="relative h-48 p-3">
+                  <img
+                    src={img.preview}
+                    alt={`Receipt preview ${index + 1}`}
+                    className="w-full h-full object-contain"
+                  />
+                  <button
+                    onClick={(e) => handleRemoveImage(index, e)}
+                    disabled={isSubmitting}
+                    className="absolute top-1 right-1 bg-background/90 hover:bg-background text-foreground rounded-full p-1.5 shadow-sm transition-colors disabled:opacity-50 z-10"
+                    aria-label={`Remove image ${index + 1}`}
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className="px-3 py-1.5 border-t border-border">
+                  <span className="text-xs text-muted-foreground truncate block max-w-[200px]">{img.file.name}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Image Modal */}
+      {enlargedImageIndex !== null && images[enlargedImageIndex] && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-background/95 backdrop-blur-sm p-4"
+          onClick={handleCloseModal}
+        >
           <button
-            onClick={handleRemoveImage}
-            disabled={isSubmitting}
-            className="text-muted-foreground hover:text-foreground p-1 shrink-0 disabled:opacity-50"
-            aria-label="Remove image"
+            onClick={handleCloseModal}
+            className="absolute top-4 right-4 bg-background/90 hover:bg-background text-foreground rounded-full p-2 shadow-lg transition-colors z-10"
+            aria-label="Close image"
           >
-            <X className="w-4 h-4" />
+            <X className="w-5 h-5" />
           </button>
+          <div className="relative max-w-full max-h-full" onClick={(e) => e.stopPropagation()}>
+            <img
+              src={images[enlargedImageIndex].preview}
+              alt={`Receipt ${enlargedImageIndex + 1}`}
+              className="max-w-full max-h-[90vh] object-contain rounded-lg"
+            />
+            <div className="absolute bottom-0 left-0 right-0 bg-background/90 px-4 py-2 rounded-b-lg">
+              <p className="text-sm text-muted-foreground text-center truncate">
+                {images[enlargedImageIndex].file.name}
+              </p>
+            </div>
+          </div>
         </div>
       )}
 

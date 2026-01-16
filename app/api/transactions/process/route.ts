@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import OpenAI from "openai"
+import { z } from "zod"
+import { zodResponseFormat } from "openai/helpers/zod"
 
 export interface TransactionItem {
   merchant: string
@@ -21,16 +23,21 @@ interface OpenAIMessage {
 }
 
 
-interface ParsedTransactionContent {
-  items?: TransactionItem[]
-  transactions?: TransactionItem[]
-  merchant?: string
-  item?: string
-  date?: string
-  category?: string
-  cost?: number
-  [key: string]: unknown
-}
+// Zod schema for structured output
+const TransactionItemSchema = z.object({
+  merchant: z.string().describe("Store/merchant name"),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).describe("ISO 8601 date YYYY-MM-DD"),
+  category: z.string().describe("Category (e.g., Groceries, Dining, Transport, Entertainment, Health, Home, Pet supplies, Donations)"),
+  item: z.string().describe("Item name/description"),
+  cost: z.number().describe("Numeric value, no currency symbols"),
+})
+
+const TransactionResponseSchema = z.object({
+  items: z.array(TransactionItemSchema).describe("Array of transaction items"),
+})
+
+// Type inferred from Zod schema
+type ParsedTransactionContent = z.infer<typeof TransactionResponseSchema>
 
 /**
  * Process images and/or text with OpenAI to extract transaction data
@@ -38,10 +45,19 @@ interface ParsedTransactionContent {
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData()
+    // Support both single image (backward compatibility) and multiple images
     const image = formData.get("image") as File | null
+    const images = formData.getAll("images") as File[]
     const text = formData.get("text") as string | null
 
-    if (!image && !text) {
+    // Combine single image and multiple images into one array
+    const allImages: File[] = []
+    if (image) {
+      allImages.push(image)
+    }
+    allImages.push(...images)
+
+    if (allImages.length === 0 && !text) {
       return NextResponse.json(
         { success: false, error: "Either an image or text is required" },
         { status: 400 }
@@ -63,19 +79,6 @@ export async function POST(request: NextRequest) {
         role: "system",
         content: `You are a transaction data extraction assistant. Extract itemized purchase information from receipts, images, or text descriptions.
 
-You must return a JSON object with this exact structure:
-{
-  "items": [
-    {
-      "merchant": "string (store/merchant name)",
-      "date": "string (ISO 8601 date YYYY-MM-DD, use ${todayDate} if not specified)",
-      "category": "string (e.g., Groceries, Dining, Transport, Entertainment, Health, Home, Pet supplies, Donations)",
-      "item": "string (item name/description)",
-      "cost": number (numeric value, no currency symbols)
-    }
-  ]
-}
-
 Rules:
 - If multiple items are in one transaction, include multiple objects in the "items" array with the same merchant and date
 - If the date is not specified, use ${todayDate}
@@ -86,42 +89,46 @@ Rules:
       },
     ]
 
-    // Add user message with text and/or image
-    if (image && text) {
-      // Both image and text
-      const imageBase64 = await imageToBase64(image)
-      messages.push({
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: `Extract transaction data from this image and use the following additional context: ${text}`,
-          },
-          {
+    // Add user message with text and/or images
+    if (allImages.length > 0) {
+      // Build content array with text and images
+      const contentArray: Array<{ type: string; text?: string; image_url?: { url: string } }> = []
+
+      // Add text if provided
+      if (text) {
+        contentArray.push({
+          type: "text",
+          text: `Extract transaction data from ${allImages.length === 1 ? "this image" : "these images"} and use the following additional context: ${text}`,
+        })
+      } else {
+        contentArray.push({
+          type: "text",
+          text: `Extract transaction data from ${allImages.length === 1 ? "this receipt/image" : "these receipts/images"}.`,
+        })
+      }
+
+      // Add all images to the content
+      for (const img of allImages) {
+        try {
+          const imageBase64 = await imageToBase64(img)
+          contentArray.push({
             type: "image_url",
             image_url: {
-              url: `data:${image.type};base64,${imageBase64}`,
+              url: `data:${img.type};base64,${imageBase64}`,
             },
-          },
-        ],
-      })
-    } else if (image) {
-      // Image only
-      const imageBase64 = await imageToBase64(image)
+          })
+        } catch (error) {
+          console.error("Error processing image:", error)
+          return NextResponse.json(
+            { success: false, error: "Image failed to upload" },
+            { status: 400 }
+          )
+        }
+      }
+
       messages.push({
         role: "user",
-        content: [
-          {
-            type: "text",
-            text: "Extract transaction data from this receipt/image.",
-          },
-          {
-            type: "image_url",
-            image_url: {
-              url: `data:${image.type};base64,${imageBase64}`,
-            },
-          },
-        ],
+        content: contentArray,
       })
     } else if (text) {
       // Text only
@@ -131,87 +138,68 @@ Rules:
       })
     }
 
-    // Call OpenAI API
-    const model = image ? "gpt-4o" : "gpt-4-turbo-preview"
+    // Call OpenAI API with structured outputs
+    // Use gpt-4o-2024-08-06 for structured outputs support (or gpt-4o-mini-2024-07-18)
+    const model = allImages.length > 0 ? "gpt-4o-2024-08-06" : "gpt-4o-2024-08-06"
     
     const openai = new OpenAI({ apiKey })
 
-    let content: string
+    let parsedContent: ParsedTransactionContent
     try {
       const completion = await openai.chat.completions.create({
         model,
         messages: messages as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
-        response_format: { type: "json_object" },
+        response_format: zodResponseFormat(TransactionResponseSchema, "transaction_response"),
         temperature: 1,
       })
 
-      content = completion.choices[0]?.message?.content || ""
+      const content = completion.choices[0]?.message?.content
+      if (!content) {
+        return NextResponse.json(
+          { success: false, error: "OpenAI failed to respond" },
+          { status: 500 }
+        )
+      }
+
+      // Parse and validate with Zod schema
+      const json = JSON.parse(content)
+      parsedContent = TransactionResponseSchema.parse(json)
     } catch (error) {
       console.error("OpenAI API error:", error)
-      const errorMessage =
-        error instanceof OpenAI.APIError
-          ? error.message
-          : error instanceof Error
-            ? error.message
-            : "Failed to process with OpenAI"
+      // Check if it's a specific OpenAI error
+      if (error instanceof OpenAI.APIError) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "OpenAI failed to respond",
+          },
+          { status: error.status || 500 }
+        )
+      }
+      // Check if it's a Zod validation error (schema mismatch)
+      if (error instanceof z.ZodError) {
+        console.error("Zod validation error:", error.issues)
+        return NextResponse.json(
+          {
+            success: false,
+            error: "OpenAI failed to respond",
+          },
+          { status: 500 }
+        )
+      }
+      // Generic error
       return NextResponse.json(
         {
           success: false,
-          error: errorMessage,
+          error: "OpenAI failed to respond",
         },
-        { status: error instanceof OpenAI.APIError ? error.status : 500 }
-      )
-    }
-
-    if (!content) {
-      return NextResponse.json(
-        { success: false, error: "No response from OpenAI" },
         { status: 500 }
       )
     }
 
-    // Parse the JSON response
-    let parsedContent: ParsedTransactionContent
-    try {
-      parsedContent = JSON.parse(content) as ParsedTransactionContent
-    } catch (_error) {
-      console.error("Failed to parse OpenAI response:", content)
-      return NextResponse.json(
-        { success: false, error: "Invalid response format from OpenAI" },
-        { status: 500 }
-      )
-    }
-
-    // Extract items array - OpenAI might return it as "items" or "transactions" or directly as array
-    // The response format should be a JSON object with an array of items
-    let items: TransactionItem[] = []
-    
-    // OpenAI with json_object format typically returns a single object
-    if (parsedContent.items && Array.isArray(parsedContent.items)) {
-      items = parsedContent.items
-    } else if (parsedContent.transactions && Array.isArray(parsedContent.transactions)) {
-      items = parsedContent.transactions
-    } else if (Array.isArray(parsedContent)) {
-      items = parsedContent as TransactionItem[]
-    } else {
-      // Try to find any array in the response
-      const keys = Object.keys(parsedContent)
-      for (const key of keys) {
-        if (Array.isArray(parsedContent[key])) {
-          items = parsedContent[key]
-          break
-        }
-      }
-      
-      // If still no array found, try to create a single item from the object
-      if (items.length === 0 && parsedContent.merchant && parsedContent.item) {
-        items = [parsedContent]
-      }
-    }
-
-    // Validate and normalize items
-    const validatedItems: TransactionItem[] = items
-      .map((item: ParsedTransactionContent) => {
+    // Extract and validate items
+    const validatedItems: TransactionItem[] = parsedContent.items
+      .map((item) => {
         // Ensure all required fields are present
         if (!item.merchant || !item.item || item.cost === undefined) {
           return null
@@ -229,7 +217,7 @@ Rules:
 
     if (validatedItems.length === 0) {
       return NextResponse.json(
-        { success: false, error: "No valid transaction items extracted" },
+        { success: false, error: "No receipt detected" },
         { status: 400 }
       )
     }

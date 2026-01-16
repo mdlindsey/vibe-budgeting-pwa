@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { ShoppingBag, Utensils, Car, Gamepad2, Heart, Home, ChevronRight, Loader2 } from "lucide-react"
 import { formatDistanceToNow, parseISO, isValid as isValidDate } from "date-fns"
+import { formatCurrency } from "@/lib/utils"
 
 interface LineItem {
   name: string
@@ -269,7 +270,7 @@ export function TransactionList({ sheetUrl }: TransactionListProps) {
                   <div className="flex-1 min-w-0 text-left">
                     <div className="flex items-center justify-between gap-2">
                       <p className="font-medium text-foreground truncate">{transaction.merchant}</p>
-                      <p className="font-semibold text-foreground shrink-0">${transaction.total.toFixed(2)}</p>
+                      <p className="font-semibold text-foreground shrink-0">{formatCurrency(transaction.total)}</p>
                     </div>
                     <p className="text-xs text-muted-foreground mt-0.5">
                       {transaction.date} · {transaction.category} · {transaction.itemCount} items
@@ -283,7 +284,7 @@ export function TransactionList({ sheetUrl }: TransactionListProps) {
                     {visibleItems.map((item, index) => (
                       <div key={index} className="flex items-center justify-between text-sm">
                         <span className="text-muted-foreground">{item.name}</span>
-                        <span className="text-foreground font-medium">${item.price.toFixed(2)}</span>
+                        <span className="text-foreground font-medium">{formatCurrency(item.price)}</span>
                       </div>
                     ))}
                     {hasMoreItems && (

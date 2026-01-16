@@ -6,7 +6,7 @@ import { useState, useRef, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Send, Sparkles, TrendingUp, ArrowRight, PiggyBank, Loader2 } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { cn, formatCurrency } from "@/lib/utils"
 import { Bar, BarChart, XAxis, YAxis, ResponsiveContainer } from "recharts"
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 import { useKeyboardScroll } from "@/hooks/use-keyboard-scroll"
@@ -204,8 +204,15 @@ export function AskTab({ sheetUrl }: AskTabProps) {
       })
 
       if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || "Failed to get response")
+        let errorMessage = "Failed to get response"
+        try {
+          const errorData = await response.json()
+          errorMessage = errorData.error || errorData.message || errorMessage
+        } catch {
+          // If response is not JSON, use status text
+          errorMessage = response.statusText || errorMessage
+        }
+        throw new Error(errorMessage)
       }
 
       const data = await response.json()
@@ -294,7 +301,10 @@ export function AskTab({ sheetUrl }: AskTabProps) {
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={message.chart.data}>
                         <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-                        <YAxis tick={{ fontSize: 12 }} />
+                        <YAxis 
+                          tick={{ fontSize: 12 }} 
+                          tickFormatter={(value) => formatCurrency(value)}
+                        />
                         <ChartTooltip content={<ChartTooltipContent />} />
                         <Bar dataKey="value" fill="var(--color-primary)" radius={4} />
                       </BarChart>

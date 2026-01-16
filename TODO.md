@@ -11,15 +11,10 @@ Enhancements:
   - "No receipt detected"
   - "OpenAI failed to respond"
   - "Image failed to upload"
-- Upload statements to ask for missing receipts
-- How should we capture Walmart/Amazon app purchases which only show 2-3 items at a time for a large order?
-  - Allow uploading of multiple screen shots
-  - Allow screen recording
-  - Allow voice processing
-- Guardrails on output to ensure it's only responding to related questions
-- Show image previews when uploading/scanning
 - Test models with sample image and expected output repeatedly to find best fit
-- Side by side desktop view
+- Guardrails on output to ensure it's only responding to related questions
+- Upload statements to ask for missing receipts
+- Allow voice and make it so the submit button is less tied to the text input
 
 Bugs:
 - Waffle House “in about 15 hours” 

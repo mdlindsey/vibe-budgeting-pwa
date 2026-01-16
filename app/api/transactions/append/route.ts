@@ -76,7 +76,97 @@ export async function POST(request: NextRequest) {
       range: "Transactions!A:E",
     })
 
-    const startRowIndex = (existingData.data.values || []).length // This will be the first row we append (0-indexed, so row 1 = header, row 2 = first data)
+    const existingRows = existingData.data.values || []
+    const startRowIndex = existingRows.length // This will be the first row we append (0-indexed, so row 1 = header, row 2 = first data)
+
+    // Check for duplicate receipts
+    // Compare new items against existing transactions
+    // A duplicate is defined as: same merchant, same date, and similar total cost (within 5% or $1)
+    
+    // Group existing transactions (handle merged cells - merchant/date only in first row)
+    const existingTransactions = new Map<string, number>() // key: "merchant|date", value: total cost
+    
+    let currentMerchant = ""
+    let currentDate = ""
+    let currentTotal = 0
+    
+    for (let i = 1; i < existingRows.length; i++) {
+      const row = existingRows[i]
+      if (!row || row.length < 5) continue
+      
+      const merchant = String(row[0] || "").trim()
+      const dateStr = String(row[1] || "").trim()
+      const costStr = String(row[4] || "0").trim()
+      
+      // If merchant is present, this is the start of a new transaction
+      if (merchant) {
+        // Save previous transaction if it exists
+        if (currentMerchant && currentDate) {
+          const key = `${currentMerchant.toLowerCase()}|${currentDate}`
+          existingTransactions.set(key, currentTotal)
+        }
+        // Start new transaction
+        currentMerchant = merchant
+        currentDate = dateStr
+        currentTotal = parseFloat(costStr.replace(/[$,]/g, "")) || 0
+      } else {
+        // This is a continuation of the current transaction (merged cell)
+        currentTotal += parseFloat(costStr.replace(/[$,]/g, "")) || 0
+      }
+    }
+    
+    // Save the last transaction
+    if (currentMerchant && currentDate) {
+      const key = `${currentMerchant.toLowerCase()}|${currentDate}`
+      existingTransactions.set(key, currentTotal)
+    }
+    
+    // Check new transactions against existing ones
+    for (const [_key, groupItems] of transactionGroups.entries()) {
+      const firstItem = groupItems[0]
+      const newTotal = groupItems.reduce((sum, item) => sum + item.cost, 0)
+      
+      // Normalize date to YYYY-MM-DD format for comparison
+      const newDate = firstItem.date
+      const comparisonKey = `${firstItem.merchant.toLowerCase()}|${newDate}`
+      
+      // Check if a transaction with this merchant and date exists
+      for (const [existingKey, existingTotal] of existingTransactions.entries()) {
+        const [existingMerchant, existingDateStr] = existingKey.split("|")
+        
+        // Check merchant match
+        if (existingMerchant !== firstItem.merchant.toLowerCase()) continue
+        
+        // Normalize and compare dates
+        let existingDate = existingDateStr
+        try {
+          // If it's already in YYYY-MM-DD format, use it
+          if (/^\d{4}-\d{2}-\d{2}$/.test(existingDate)) {
+            existingDate = existingDate
+          } else if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(existingDate)) {
+            // Convert M/D/YYYY to YYYY-MM-DD
+            const [month, day, year] = existingDate.split("/")
+            existingDate = `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`
+          }
+        } catch {
+          // If date parsing fails, skip this transaction
+          continue
+        }
+        
+        if (existingDate !== newDate) continue
+        
+        // Compare costs (within 5% or $1 tolerance)
+        const costDifference = Math.abs(newTotal - existingTotal)
+        const costTolerance = Math.max(newTotal * 0.05, 1) // 5% or $1, whichever is larger
+        
+        if (costDifference <= costTolerance) {
+          return NextResponse.json(
+            { success: false, error: "Duplicate receipt detected" },
+            { status: 409 } // 409 Conflict
+          )
+        }
+      }
+    }
 
     // Prepare rows to append
     // For each transaction group, we'll append rows and then merge the merchant/date cells

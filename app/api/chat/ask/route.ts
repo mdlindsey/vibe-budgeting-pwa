@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { extractSpreadsheetId, getSheetsClient } from "@/lib/google-sheets"
 import OpenAI from "openai"
+import { z } from "zod"
+import { zodResponseFormat } from "openai/helpers/zod"
 
 export interface ChatResponse {
   content: string
@@ -10,6 +12,21 @@ export interface ChatResponse {
   }
   suggestedPrompts?: string[]
 }
+
+// Zod schema for structured output
+const ChatResponseSchema = z.object({
+  content: z.string().describe("Your response in markdown format, can include **bold**, numbered lists, emojis"),
+  chart: z.object({
+    type: z.enum(["bar", "line"]).describe("Chart type"),
+    data: z.array(
+      z.object({
+        name: z.string().describe("Data point name"),
+        value: z.number().describe("Data point value"),
+      })
+    ).describe("Chart data array"),
+  }).optional().describe("Optional chart visualization"),
+  suggestedPrompts: z.array(z.string()).optional().describe("Optional array of 3-4 follow-up question suggestions"),
+})
 
 interface Transaction {
   merchant: string
@@ -25,11 +42,8 @@ interface OpenAIMessage {
 }
 
 
-interface ParsedChatContent {
-  content?: string
-  chart?: ChatResponse["chart"]
-  suggestedPrompts?: string[]
-}
+// Type inferred from Zod schema
+type ParsedChatContent = z.infer<typeof ChatResponseSchema>
 
 /**
  * Process chat questions about spending using OpenAI
@@ -108,11 +122,6 @@ export async function POST(request: NextRequest) {
         role: "system",
         content: `You are a helpful financial assistant that analyzes spending data. You help users understand their spending patterns, find savings opportunities, and answer questions about their transactions.
 
-You will receive transaction data and user questions. Respond in a structured JSON format with:
-- content: string (your response in markdown format, can include **bold**, numbered lists, emojis)
-- chart: optional object with type ("bar" or "line") and data array with {name: string, value: number}
-- suggestedPrompts: optional array of 3-4 follow-up question suggestions
-
 Be concise, helpful, and data-driven. Use the transaction data to provide specific insights.`,
       },
     ]
@@ -147,51 +156,58 @@ Now answer the user's question about their spending.`,
       content: question,
     })
 
-    // Call OpenAI API
+    // Call OpenAI API with structured outputs
     const openai = new OpenAI({ apiKey })
 
-    let content: string
+    let parsedContent: ParsedChatContent
     try {
       const completion = await openai.chat.completions.create({
-        model: "gpt-4-turbo-preview",
+        model: "gpt-4o-2024-08-06",
         messages: messages as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
-        response_format: { type: "json_object" },
+        response_format: zodResponseFormat(ChatResponseSchema, "chat_response"),
         temperature: 0.7,
       })
 
-      content = completion.choices[0]?.message?.content || ""
+      const content = completion.choices[0]?.message?.content
+      if (!content) {
+        return NextResponse.json(
+          { success: false, error: "OpenAI failed to respond" },
+          { status: 500 }
+        )
+      }
+
+      // Parse and validate with Zod schema
+      const json = JSON.parse(content)
+      parsedContent = ChatResponseSchema.parse(json)
     } catch (error) {
       console.error("OpenAI API error:", error)
-      const errorMessage =
-        error instanceof OpenAI.APIError
-          ? error.message
-          : error instanceof Error
-            ? error.message
-            : "Failed to process question"
+      // Check if it's a specific OpenAI error
+      if (error instanceof OpenAI.APIError) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "OpenAI failed to respond",
+          },
+          { status: error.status || 500 }
+        )
+      }
+      // Check if it's a Zod validation error (schema mismatch)
+      if (error instanceof z.ZodError) {
+        console.error("Zod validation error:", error.issues)
+        return NextResponse.json(
+          {
+            success: false,
+            error: "OpenAI failed to respond",
+          },
+          { status: 500 }
+        )
+      }
+      // Generic error
       return NextResponse.json(
         {
           success: false,
-          error: errorMessage,
+          error: "OpenAI failed to respond",
         },
-        { status: error instanceof OpenAI.APIError ? error.status : 500 }
-      )
-    }
-
-    if (!content) {
-      return NextResponse.json(
-        { success: false, error: "No response from OpenAI" },
-        { status: 500 }
-      )
-    }
-
-    // Parse the JSON response
-    let parsedContent: ParsedChatContent
-    try {
-      parsedContent = JSON.parse(content) as ParsedChatContent
-    } catch (_error) {
-      console.error("Failed to parse OpenAI response:", content)
-      return NextResponse.json(
-        { success: false, error: "Invalid response format from OpenAI" },
         { status: 500 }
       )
     }
