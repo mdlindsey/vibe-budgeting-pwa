@@ -24,3 +24,4 @@ Bugs:
 - Starting screen should detect client theme (dark or light) rather than choosing light as default until the "active user" state is reached
 - Extracts wrong/inconsistent amounts; top golf logged as 407 then 414.75 but actual amount was 436.98
   - The next time it logged it as additional line items in the previous transaction
+- If sheet isn't shared with the SA it should throw an error and take you back to the regular screen not progress to active
