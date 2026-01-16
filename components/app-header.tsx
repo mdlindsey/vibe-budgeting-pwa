@@ -9,7 +9,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { useEffect, useState } from "react"
+import { useTheme } from "@/components/theme-provider"
 
 interface AppHeaderProps {
   sheetUrl: string
@@ -17,35 +17,12 @@ interface AppHeaderProps {
 }
 
 export function AppHeader({ sheetUrl, onReset }: AppHeaderProps) {
-  const [theme, setTheme] = useState<"light" | "dark">("light")
-
-  useEffect(() => {
-    // Read from localStorage after hydration to avoid hydration mismatch
-    // This is necessary because localStorage is only available on the client
-    /* eslint-disable react-hooks/set-state-in-effect */
-    const stored = localStorage.getItem("expense-tracker-theme") as "light" | "dark" | null
-    if (stored) {
-      setTheme(stored)
-      document.documentElement.classList.toggle("dark", stored === "dark")
-    } else {
-      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches
-      if (prefersDark) {
-        setTheme("dark")
-        document.documentElement.classList.add("dark")
-      }
-    }
-    /* eslint-enable react-hooks/set-state-in-effect */
-  }, [])
-
-  useEffect(() => {
-    document.documentElement.classList.toggle("dark", theme === "dark")
-  }, [theme])
+  const { resolvedTheme, setTheme } = useTheme()
 
   const toggleTheme = () => {
-    const newTheme = theme === "light" ? "dark" : "light"
+    // Toggle between light and dark (not system)
+    const newTheme = resolvedTheme === "light" ? "dark" : "light"
     setTheme(newTheme)
-    localStorage.setItem("expense-tracker-theme", newTheme)
-    document.documentElement.classList.toggle("dark", newTheme === "dark")
   }
 
   const handleOpenSheet = () => {
@@ -83,7 +60,7 @@ export function AppHeader({ sheetUrl, onReset }: AppHeaderProps) {
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem onClick={toggleTheme}>
-              {theme === "light" ? (
+              {resolvedTheme === "light" ? (
                 <>
                   <Moon className="w-4 h-4 mr-2" />
                   Dark Mode
