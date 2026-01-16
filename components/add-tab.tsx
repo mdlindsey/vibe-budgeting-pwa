@@ -239,7 +239,11 @@ export function AddTab({ sheetUrl, onTransactionAdded }: AddTabProps) {
         <div className="overflow-x-auto pb-2 -mx-4 px-4">
           <div className="flex gap-3 justify-center min-w-max">
             {images.map((img, index) => (
-              <div key={index} className="relative bg-card rounded-xl border border-border flex-shrink-0 cursor-pointer" onClick={() => handleImageClick(index)}>
+              <div
+                key={index}
+                className="relative bg-card rounded-xl border border-border flex-shrink-0 cursor-pointer max-w-[180px]"
+                onClick={() => handleImageClick(index)}
+              >
                 <div className="relative h-48 p-3">
                   <img
                     src={img.preview}
